@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	. "github.com/hellbutcher/go-mmstruct/mmf"
+	. "github.com/HellButcher/go-mmstruct/mmf"
 )
 
 func close(mf *MappedFile, t *testing.T) {
