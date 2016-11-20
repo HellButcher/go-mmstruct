@@ -6,5 +6,5 @@ import (
 	"os"
 )
 
-const CREATE_FLAGS = os.O_RDWR | os.O_CREATE | os.O_TRUNC
-const OPEN_FLAGS = os.O_RDWR | os.O_CREATE
+const createFlags = os.O_RDWR | os.O_CREATE | os.O_TRUNC
+const openFlags = os.O_RDWR | os.O_CREATE

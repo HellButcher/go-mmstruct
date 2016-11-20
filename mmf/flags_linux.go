@@ -6,5 +6,5 @@ import (
 	syscall "golang.org/x/sys/unix"
 )
 
-const CREATE_FLAGS = os.O_RDWR | os.O_CREATE | syscall.O_NOATIME | os.O_TRUNC
-const OPEN_FLAGS = os.O_RDWR | os.O_CREATE | syscall.O_NOATIME
+const createFlags = os.O_RDWR | os.O_CREATE | syscall.O_NOATIME | os.O_TRUNC
+const openFlags = os.O_RDWR | os.O_CREATE | syscall.O_NOATIME

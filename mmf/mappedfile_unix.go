@@ -15,18 +15,18 @@ type MappedFile struct {
 	file *os.File
 }
 
-func (self *MappedFile) mmap(size int) error {
+func (mf *MappedFile) mmap(size int) error {
 	var err error
-	self.data, err = syscall.Mmap(int(self.file.Fd()), 0, size, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
+	mf.data, err = syscall.Mmap(int(mf.file.Fd()), 0, size, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
 	if err != nil {
 		return os.NewSyscallError("Mmap", err)
 	}
 	return nil
 }
 
-func (self *MappedFile) munmap() error {
-	if data := self.data; data != nil {
-		self.data = nil
+func (mf *MappedFile) munmap() error {
+	if data := mf.data; data != nil {
+		mf.data = nil
 		if err := syscall.Munmap(data); err != nil {
 			return os.NewSyscallError("Munmap", err)
 		}
@@ -34,14 +34,14 @@ func (self *MappedFile) munmap() error {
 	return nil
 }
 
-func (self *MappedFile) sync(async bool) error {
+func (mf *MappedFile) sync(async bool) error {
 	var flags uintptr
 	if async {
 		flags = syscall.MS_ASYNC
 	} else {
 		flags = syscall.MS_SYNC
 	}
-	_, _, errno := syscall.Syscall(syscall.SYS_MSYNC, uintptr(unsafe.Pointer(&self.data[0])), uintptr(len(self.data)), flags)
+	_, _, errno := syscall.Syscall(syscall.SYS_MSYNC, uintptr(unsafe.Pointer(&mf.data[0])), uintptr(len(mf.data)), flags)
 	if errno != 0 {
 		return os.NewSyscallError("Msync", errno)
 	}
