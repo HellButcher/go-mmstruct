@@ -7,7 +7,7 @@ import (
 	. "github.com/HellButcher/go-mmstruct/mmf"
 )
 
-func close(mf *MappedFile, t *testing.T) {
+func closeMF(mf *MappedFile, t *testing.T) {
 	if err := mf.Close(); err != nil {
 		t.Fatal("Error while closing mapped file:", err)
 	}
@@ -21,7 +21,7 @@ func TestCreateAndOpenMappedFile(t *testing.T) {
 		if err != nil {
 			t.Fatal("Error while creating mapped file:", err)
 		}
-		defer close(mf, t)
+		defer closeMF(mf, t)
 
 		if n := mf.Name(); n != "test1.tmp" {
 			t.Error("name mismatch. got", n)
@@ -46,7 +46,7 @@ func TestCreateAndOpenMappedFile(t *testing.T) {
 		if n != 5 {
 			t.Error("unexpected write count. expected 5, got", n)
 		}
-		close(mf, t)
+		closeMF(mf, t)
 	}
 	{
 		// open the file again
@@ -54,7 +54,7 @@ func TestCreateAndOpenMappedFile(t *testing.T) {
 		if err != nil {
 			t.Fatal("Error while opening mapped file:", err)
 		}
-		defer close(mf, t)
+		defer closeMF(mf, t)
 		if s := mf.Size(); s != 4096 {
 			t.Error("size mismatch. expected 4096, got", s)
 		}
@@ -101,7 +101,7 @@ func TestCreateAndOpenMappedFile(t *testing.T) {
 		if n != 5 {
 			t.Error("unexpected write count. expected 5, got", n)
 		}
-		close(mf, t)
+		closeMF(mf, t)
 	}
 	{
 		// open the truncated file again
@@ -109,7 +109,7 @@ func TestCreateAndOpenMappedFile(t *testing.T) {
 		if err != nil {
 			t.Fatal("Error while opening mapped file:", err)
 		}
-		defer close(mf, t)
+		defer closeMF(mf, t)
 		if s := mf.Size(); s != 8192 {
 			t.Error("size mismatch. expected 8192, got", s)
 		}
@@ -122,6 +122,6 @@ func TestCreateAndOpenMappedFile(t *testing.T) {
 		if string(data1[:]) != "ABCDE" {
 			t.Error("expected ABCDE, got", data1)
 		}
-		close(mf, t)
+		closeMF(mf, t)
 	}
 }
