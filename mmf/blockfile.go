@@ -8,9 +8,10 @@ import (
 	"unsafe"
 )
 
+// The default block size that is used by CreateBlockFile and CreateBlockFileInMapper
 const DefaultBlocksize = 4096
 
-const BlockFileMagic uint32 = 0xB10CF11E
+const BlockFileMagic uint32 = 0xB10CF11E         // the first 4 byte of a block-file
 const reversedBlockFileMagic uint32 = 0x1EF10CB1 // used to check the endianes
 
 type bfHeader struct {
@@ -99,6 +100,7 @@ type BlockFile struct {
 	blocksize uint32
 }
 
+// OpenBlockFile opens an existing block-file that is given as filename.
 func OpenBlockFile(filename string) (*BlockFile, error) {
 	mf, err := OpenMappedFile(filename)
 	if err != nil {
@@ -107,6 +109,7 @@ func OpenBlockFile(filename string) (*BlockFile, error) {
 	return OpenBlockFileFromMapper(mf)
 }
 
+// OpenBlockFileFromMapper opens an existing block-file by providig a Mapper.
 func OpenBlockFileFromMapper(mapper Mapper) (*BlockFile, error) {
 	var blocksize uint32
 	err := mapper.Map(0, bfHeaderSize, func(data []byte) error {
@@ -130,10 +133,12 @@ func OpenBlockFileFromMapper(mapper Mapper) (*BlockFile, error) {
 	return &BlockFile{mapper: mapper, blocksize: blocksize}, nil
 }
 
+// CreateBlockFile creates a new block-file at the given filename with the DefaultBlocksize.
 func CreateBlockFile(filename string) (*BlockFile, error) {
 	return CreateBlockFileWithSize(filename, DefaultBlocksize)
 }
 
+// CreateBlockFileWithSize creates a new block-file at the given filename with the given blocksize.
 func CreateBlockFileWithSize(filename string, blocksize uint32) (*BlockFile, error) {
 	mf, err := CreateMappedFile(filename, int64(blocksize))
 	if err != nil {
@@ -142,10 +147,12 @@ func CreateBlockFileWithSize(filename string, blocksize uint32) (*BlockFile, err
 	return CreateBlockFileInMapperWithSize(mf, blocksize)
 }
 
+// CreateBlockFileInMapper creates a new block-file in the given Mapper with the DefaultBlocksize.
 func CreateBlockFileInMapper(mapper Mapper) (*BlockFile, error) {
 	return CreateBlockFileInMapperWithSize(mapper, DefaultBlocksize)
 }
 
+// CreateBlockFileInMapperWithSize creates a new block-file in the given Mapper with the given blocksize.
 func CreateBlockFileInMapperWithSize(mapper Mapper, blocksize uint32) (*BlockFile, error) {
 	bf := &BlockFile{mapper: mapper, blocksize: blocksize}
 	err := bf.initHeaderBlock(0, nil)
@@ -156,6 +163,7 @@ func CreateBlockFileInMapperWithSize(mapper Mapper, blocksize uint32) (*BlockFil
 	return bf, nil
 }
 
+// Close closes the underlying Mapper if it is a Closer
 func (bf *BlockFile) Close() error {
 	if bf.mapper != nil {
 		closable, ok := bf.mapper.(io.Closer)
@@ -171,6 +179,8 @@ func (bf *BlockFile) Close() error {
 	return nil
 }
 
+// MapBlock block maps the block with the given index, and calls the handler.
+// MapBlock is basically a wrapper for Mapper.Map that works with block-indices.
 func (bf *BlockFile) MapBlock(block int, handler func([]byte) error) error {
 	return bf.mapper.Map(int64(block)*int64(bf.blocksize), int(bf.blocksize), handler)
 }
@@ -209,6 +219,9 @@ func (bf *BlockFile) mapHeaderBlock(block int, handler func(*bfHeader) error) er
 	})
 }
 
+// AllocateBlock returns a new unused block-index. This either returns a block
+// from an internal free-list (a block that was Freed earlier by FreeBlock), or
+// allocates new space by calling Truncate on the mapper.
 func (bf *BlockFile) AllocateBlock() (int, error) {
 	var block, nextHdrIdx int = 0, 0
 	err := bf.mapHeaderBlock(0, func(hdr *bfHeader) error {
@@ -261,6 +274,7 @@ func (bf *BlockFile) AllocateBlock() (int, error) {
 	return int(newBlockIndex), nil
 }
 
+// AllocateBlocks allocates a given number ob blocks (see AllocateBlock)
 func (bf *BlockFile) AllocateBlocks(num int) ([]int, error) {
 	blocks := make([]int, num)
 	for n := 0; n < num; n++ {
@@ -273,6 +287,8 @@ func (bf *BlockFile) AllocateBlocks(num int) ([]int, error) {
 	return blocks, nil
 }
 
+// FreeBlock puts the given block to an internal free-list, so that the block
+// can be returned by future call to AllocateBlock.
 func (bf *BlockFile) FreeBlock(block int) error {
 	var nextHdrIdx int = 0
 	err := bf.mapHeaderBlock(0, func(hdr *bfHeader) error {
@@ -314,6 +330,7 @@ func (bf *BlockFile) FreeBlock(block int) error {
 	return err
 }
 
+// FreeBlocks frees a given number ob blocks (see FreeBlock)
 func (bf *BlockFile) FreeBlocks(blocks []int) (int, error) {
 	n := 0
 	for _, block := range blocks {

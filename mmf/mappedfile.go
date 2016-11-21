@@ -14,13 +14,14 @@ const (
 	SeekEnd     = io.SeekEnd     // seek relative to the end
 )
 
+// Mapper is tha interface that wraps basic methods for accessing memory mapped files.
 type Mapper interface {
 	Map(off int64, length int, handler func([]byte) error) error
 	Size() int
 	Truncate(size int64) error
 }
 
-const DefaultMode os.FileMode = 0666
+const defaultMode os.FileMode = 0666
 
 // CreateMappedFile creates a new file (or replaces an existing one) with the
 // given initial size. The file is then mapped to memory. The mapped memory is
@@ -35,7 +36,7 @@ func CreateMappedFile(filename string, size int64) (*MappedFile, error) {
 	if size != int64(int(size)) {
 		return nil, fmt.Errorf("MappedFile: requested file size is too large")
 	}
-	f, err := os.OpenFile(filename, createFlags, DefaultMode)
+	f, err := os.OpenFile(filename, createFlags, defaultMode)
 	if err != nil {
 		return nil, err
 	}
@@ -58,7 +59,7 @@ func CreateMappedFile(filename string, size int64) (*MappedFile, error) {
 // the mapped memory for will be shared between the processes.
 // It returns an error, if any.
 func OpenMappedFile(filename string) (*MappedFile, error) {
-	f, err := os.OpenFile(filename, openFlags, DefaultMode)
+	f, err := os.OpenFile(filename, openFlags, defaultMode)
 	if err != nil {
 		return nil, err
 	}
@@ -355,6 +356,7 @@ func (mf *MappedFile) WriteAt(b []byte, off int64) (int, error) {
 	return n, nil
 }
 
+// Map calls the given handler with a slice at the given range.
 func (mf *MappedFile) Map(off int64, length int, handler func([]byte) error) error {
 	if mf == nil || mf.data == nil {
 		return errors.New("MappedFile: closed")

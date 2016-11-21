@@ -9,6 +9,7 @@ import (
 	syscall "golang.org/x/sys/unix"
 )
 
+// MappedFile is a struct that defines an open memory mapped file
 type MappedFile struct {
 	data []byte
 	off  int
