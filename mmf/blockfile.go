@@ -14,6 +14,13 @@ const DefaultBlocksize = 4096
 const BlockFileMagic uint32 = 0xB10CF11E         // the first 4 byte of a block-file
 const reversedBlockFileMagic uint32 = 0x1EF10CB1 // used to check the endianes
 
+// Mapper is an interface that wraps basic methods for accessing memory mapped files.
+type Mapper interface {
+	Map(off int64, length int, handler func([]byte) error) error
+	Size() int
+	Truncate(size int64) error
+}
+
 type bfHeader struct {
 	magic     uint32
 	blocksize uint32
@@ -59,15 +66,6 @@ func (hdr *bfHeader) Initialize(blocksize uint32) error {
 	hdr.free_len = (blocksize - uint32(bfHeaderSize)) / 4
 	hdr.free_head = 0
 	return nil
-}
-
-func createBfHeaderInSlice(data []byte) (*bfHeader, error) {
-	if len(data) < bfHeaderSize {
-		return nil, fmt.Errorf("BlockFile: slice to small for bf header")
-	}
-	hdr := (*bfHeader)(unsafe.Pointer(&data[0]))
-
-	return hdr, nil
 }
 
 func (hdr *bfHeader) freeList() []uint32 {
@@ -177,6 +175,11 @@ func (bf *BlockFile) Close() error {
 	}
 	runtime.SetFinalizer(bf, nil)
 	return nil
+}
+
+// BlockSize returns the size of a single block of the BlockFile.
+func (bf *BlockFile) BlockSize() int {
+	return int(bf.blocksize)
 }
 
 // MapBlock block maps the block with the given index, and calls the handler.

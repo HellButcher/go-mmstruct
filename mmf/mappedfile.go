@@ -14,13 +14,6 @@ const (
 	SeekEnd     = io.SeekEnd     // seek relative to the end
 )
 
-// Mapper is tha interface that wraps basic methods for accessing memory mapped files.
-type Mapper interface {
-	Map(off int64, length int, handler func([]byte) error) error
-	Size() int
-	Truncate(size int64) error
-}
-
 const defaultMode os.FileMode = 0666
 
 // CreateMappedFile creates a new file (or replaces an existing one) with the
