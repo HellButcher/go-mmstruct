@@ -151,9 +151,12 @@ func (bf *BlockFile) BlockSize() int {
 	return int(bf.blocksize)
 }
 
-// MapBlock block maps the block with the given index, and calls the handler.
+// MapBlock maps the block with the given index, and calls the handler.
 // MapBlock is basically a wrapper for Mapper.Map that works with block-indices.
 func (bf *BlockFile) MapBlock(block int, handler func([]byte) error) error {
+	if block <= 0 {
+		return fmt.Errorf("can't map block 0. This is the header-block.")
+	}
 	return bf.mapper.Map(int64(block)*int64(bf.blocksize), int(bf.blocksize), handler)
 }
 
@@ -178,6 +181,22 @@ func (bf *BlockFile) mapHeaderBlock(block int, handler func(*bfHeader) error) er
 		}
 		if handler != nil {
 			return handler(hdr)
+		}
+		return nil
+	})
+}
+
+// MapHeader maps the data section of header block (index 0), and calls the handler.
+// The returned slice is a little bit smaller than the blocksize.
+func (bf *BlockFile) MapHeader(handler func(data []byte, contentType uint32) error) error {
+	return bf.mapper.Map(0, int(bf.blocksize), func(data []byte) error {
+		hdr, err := bfHeaderFromSlice(data)
+		if err != nil {
+			return err
+		}
+		contentType := hdr.contentType
+		if handler != nil {
+			return handler(data[bfHeaderSize:], contentType)
 		}
 		return nil
 	})
