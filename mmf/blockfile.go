@@ -14,6 +14,8 @@ const DefaultBlocksize = 4096
 const BlockFileMagic uint32 = 0xB10CF11E         // the first 4 byte of a block-file
 const reversedBlockFileMagic uint32 = 0x1EF10CB1 // used to check the endianes
 
+const ContentFreeList uint32 = 0xF9337157
+
 // Mapper is an interface that wraps basic methods for accessing memory mapped files.
 type Mapper interface {
 	Map(off int64, length int, handler func([]byte) error) error
@@ -22,15 +24,13 @@ type Mapper interface {
 }
 
 type bfHeader struct {
-	magic     uint32
-	blocksize uint32
-	next      uint32 // reserved
-	free_len  uint32
-	free_head uint32
+	magic       uint32
+	contentType uint32
+	blocksize   uint32
+	nextFree    uint32
 }
 
-var bfHeaderEntries int = 5
-var bfHeaderSize int = bfHeaderEntries * 4
+var bfHeaderSize int = 16
 
 func init() {
 	// ensure, the size of the bfHeader struct is correct
@@ -43,54 +43,27 @@ func bfHeaderFromSlice(data []byte) (*bfHeader, error) {
 	if len(data) < bfHeaderSize {
 		return nil, fmt.Errorf("BlockFile: slice to small for bf header")
 	}
-	return (*bfHeader)(unsafe.Pointer(&data[0])), nil
-}
-
-func (hdr *bfHeader) Validate() error {
+	hdr := (*bfHeader)(unsafe.Pointer(&data[0]))
 	if hdr.magic == reversedBlockFileMagic {
-		return fmt.Errorf("BlockFile: unable to read header: was the file generated on an other platform?")
+		return nil, fmt.Errorf("BlockFile: unable to read header: was the file generated on an other platform?")
 	} else if hdr.magic != BlockFileMagic {
-		return fmt.Errorf("BlockFile: unable to read header: unexpected magic number")
-	} else if hdr.free_head < 0 || hdr.free_head > hdr.free_len {
-		return fmt.Errorf("BlockFile: error in free-list definition")
-	} else if uint32(bfHeaderSize)+hdr.free_len*4 > hdr.blocksize {
-		return fmt.Errorf("BlockFile: slice to small for storing the free-list")
+		return nil, fmt.Errorf("BlockFile: unable to read header: unexpected magic number")
 	}
-	return nil
+	return hdr, nil
 }
 
-func (hdr *bfHeader) Initialize(blocksize uint32) error {
+func initBfHeaderFromSlice(data []byte, blocksize uint32) (*bfHeader, error) {
+	if len(data) < bfHeaderSize {
+		return nil, fmt.Errorf("BlockFile: slice to small for bf header")
+	} else if len(data) < int(blocksize) {
+		return nil, fmt.Errorf("BlockFile: slice to small for storing the blocksize")
+	}
+	hdr := (*bfHeader)(unsafe.Pointer(&data[0]))
 	hdr.magic = BlockFileMagic
+	hdr.contentType = 0
 	hdr.blocksize = blocksize
-	hdr.next = 0
-	hdr.free_len = (blocksize - uint32(bfHeaderSize)) / 4
-	hdr.free_head = 0
-	return nil
-}
-
-func (hdr *bfHeader) freeList() []uint32 {
-	return (*[1<<31 - 1]uint32)(unsafe.Pointer(hdr))[bfHeaderEntries : bfHeaderEntries+int(hdr.free_head)]
-}
-
-func (hdr *bfHeader) freeListPush(entry uint32) error {
-	cur := hdr.free_head
-	if cur >= hdr.free_len {
-		return io.EOF
-	}
-	hdr.free_head++
-	hdr.freeList()[cur] = entry
-	return nil
-}
-
-func (hdr *bfHeader) freeListPop() (uint32, error) {
-	cur := hdr.free_head
-	if cur <= 0 {
-		return ^uint32(0), io.EOF
-	}
-	cur--
-	entry := hdr.freeList()[cur]
-	hdr.free_head = cur
-	return entry, nil
+	hdr.nextFree = 0
+	return hdr, nil
 }
 
 type BlockFile struct {
@@ -112,10 +85,6 @@ func OpenBlockFileFromMapper(mapper Mapper) (*BlockFile, error) {
 	var blocksize uint32
 	err := mapper.Map(0, bfHeaderSize, func(data []byte) error {
 		hdr, err := bfHeaderFromSlice(data)
-		if err != nil {
-			return err
-		}
-		err = hdr.Validate()
 		if err != nil {
 			return err
 		}
@@ -190,11 +159,7 @@ func (bf *BlockFile) MapBlock(block int, handler func([]byte) error) error {
 
 func (bf *BlockFile) initHeaderBlock(block int, handler func(*bfHeader) error) error {
 	return bf.mapper.Map(int64(block)*int64(bf.blocksize), int(bf.blocksize), func(data []byte) error {
-		hdr, err := bfHeaderFromSlice(data)
-		if err != nil {
-			return err
-		}
-		err = hdr.Initialize(bf.blocksize)
+		hdr, err := initBfHeaderFromSlice(data, bf.blocksize)
 		if err != nil {
 			return err
 		}
@@ -211,10 +176,6 @@ func (bf *BlockFile) mapHeaderBlock(block int, handler func(*bfHeader) error) er
 		if err != nil {
 			return err
 		}
-		err = hdr.Validate()
-		if err != nil {
-			return err
-		}
 		if handler != nil {
 			return handler(hdr)
 		}
@@ -226,47 +187,36 @@ func (bf *BlockFile) mapHeaderBlock(block int, handler func(*bfHeader) error) er
 // from an internal free-list (a block that was Freed earlier by FreeBlock), or
 // allocates new space by calling Truncate on the mapper.
 func (bf *BlockFile) AllocateBlock() (int, error) {
-	var block, nextHdrIdx int = 0, 0
+	var block int = 0
 	err := bf.mapHeaderBlock(0, func(hdr *bfHeader) error {
-		b, err := hdr.freeListPop()
-		if err != nil {
-			nextHdrIdx = int(hdr.next)
-			return err
-		}
-		block = int(b)
+		block = int(hdr.nextFree)
 		return nil
 	})
-	if err == nil {
-		return block, nil
-	} else if err != io.EOF {
+	if err != nil {
 		return 0, err
 	}
-	if nextHdrIdx != 0 {
-		hdrIdx := nextHdrIdx
-		nextHdrIdx = 0
-		err := bf.mapHeaderBlock(hdrIdx, func(hdr *bfHeader) error {
-			b, err := hdr.freeListPop()
-			if err != nil {
-				nextHdrIdx = int(hdr.next)
-				return err
+	if block != 0 {
+		// get the next free block
+		var nextFree uint32 = 0
+		err := bf.mapHeaderBlock(block, func(hdr *bfHeader) error {
+			if hdr.contentType != ContentFreeList {
+				return fmt.Errorf("block %d is not marked as free", block)
 			}
-			block = int(b)
-			return nil
-		})
-		if err == nil {
-			return block, nil
-		} else if err != io.EOF {
-			return 0, err
-		}
-		// change next of page 0
-		err = bf.mapHeaderBlock(0, func(hdr *bfHeader) error {
-			hdr.next = uint32(nextHdrIdx)
+			nextFree = hdr.nextFree
 			return nil
 		})
 		if err != nil {
 			return 0, err
 		}
-		return hdrIdx, nil
+		// update nextFree in the header
+		err = bf.mapHeaderBlock(0, func(hdr *bfHeader) error {
+			hdr.nextFree = nextFree
+			return nil
+		})
+		if err != nil {
+			return 0, err
+		}
+		return block, nil
 	}
 	// allocate new block
 	newBlockIndex := (int64(bf.mapper.Size()) + int64(bf.blocksize) - 1) / int64(bf.blocksize)
@@ -293,44 +243,33 @@ func (bf *BlockFile) AllocateBlocks(num int) ([]int, error) {
 // FreeBlock puts the given block to an internal free-list, so that the block
 // can be returned by future call to AllocateBlock.
 func (bf *BlockFile) FreeBlock(block int) error {
-	var nextHdrIdx int = 0
+	// get the old nextFree block
+	var nextFree uint32 = 0
 	err := bf.mapHeaderBlock(0, func(hdr *bfHeader) error {
-		err := hdr.freeListPush(uint32(block))
-		if err != nil {
-			nextHdrIdx = int(hdr.next)
-			return err
-		}
-		return nil
-	})
-	if err == nil {
-		return nil
-	} else if err != io.EOF {
-		return err
-	}
-	if nextHdrIdx != 0 {
-		err := bf.mapHeaderBlock(nextHdrIdx, func(hdr *bfHeader) error {
-			return hdr.freeListPush(uint32(block))
-		})
-		if err == nil {
-			return nil
-		} else if err != io.EOF {
-			return err
-		}
-	}
-	// map block to a new header
-	err = bf.initHeaderBlock(block, func(hdr *bfHeader) error {
-		hdr.next = uint32(nextHdrIdx)
+		nextFree = hdr.nextFree
 		return nil
 	})
 	if err != nil {
 		return err
 	}
-	// change next of page 0
-	err = bf.mapHeaderBlock(0, func(hdr *bfHeader) error {
-		hdr.next = uint32(block)
+	// create a new free-list entry, in the free block
+	err = bf.initHeaderBlock(block, func(hdr *bfHeader) error {
+		hdr.contentType = ContentFreeList
+		hdr.nextFree = nextFree
 		return nil
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	// update nextFree in the header
+	err = bf.mapHeaderBlock(0, func(hdr *bfHeader) error {
+		hdr.nextFree = uint32(block)
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // FreeBlocks frees a given number ob blocks (see FreeBlock)

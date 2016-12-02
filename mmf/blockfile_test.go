@@ -93,4 +93,22 @@ func TestCreateAllocateANdFreeBF(t *testing.T) {
 			t.Fatal("Error while freeing block", n, err)
 		}
 	}
+	for n := 39; n <= 30; n-- {
+		block, err = bf.AllocateBlock()
+		if err != nil {
+			t.Fatal("Error while allocatin block", n, err)
+		}
+		if block != n {
+			t.Error("unexpected block index. expected ", n, ", got", block)
+		}
+	}
+	for n := 19; n <= 0; n-- {
+		block, err = bf.AllocateBlock()
+		if err != nil {
+			t.Fatal("Error while allocatin block", n, err)
+		}
+		if block != n {
+			t.Error("unexpected block index. expected ", n, ", got", block)
+		}
+	}
 }
